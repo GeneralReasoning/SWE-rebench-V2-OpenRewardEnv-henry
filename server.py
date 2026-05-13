@@ -138,7 +138,7 @@ class SWERebenchV2(Environment):
         self.sandbox_settings = SandboxSettings(
             environment=ENVIRONMENT_NAME,
             image=self.parsed.image_name,
-            machine_size="1:2"
+            machine_size="0.5:1"
         )
         self.sandbox = self.or_client.sandbox(self.sandbox_settings)
 
