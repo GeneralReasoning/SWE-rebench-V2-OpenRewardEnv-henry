@@ -58,7 +58,7 @@ class TaskSpec(BaseModel):
 # Tool input models
 # ---------------------------------------------------------------------------
 
-ENVIRONMENT_NAME = "nebius/SWE-rebench-V2"
+ENVIRONMENT_NAME = "GeneralReasoning/swe-rebench-v2-henry-2"
 
 
 class BashInput(BaseModel):
