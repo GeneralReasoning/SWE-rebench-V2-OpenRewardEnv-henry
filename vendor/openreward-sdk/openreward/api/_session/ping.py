@@ -29,14 +29,106 @@ class ErrorResponse:
     message: str
 
 
+def _make_trace_config() -> aiohttp.TraceConfig:
+    """Per-request phase timing logs for the ping ClientSession.
+
+    Fires one log line per phase (request_start, dns_start/end,
+    connect_start/end, connect_reuse, request_end, request_exception) for
+    every individual HTTP request — including each tenacity retry inside
+    ``request_retryable``. Use these to see which phase eats the 30s
+    ClientTimeout budget when a ping times out.
+    """
+    tc = aiohttp.TraceConfig()
+
+    def _sid(params) -> str:
+        try:
+            return params.headers.get("X-Session-ID", "?")
+        except Exception:
+            return "?"
+
+    async def on_request_start(session, ctx, params):
+        ctx.t_start = time.monotonic()
+        ctx.req_id = f"{id(ctx) & 0xFFFF:04x}"
+        logger.info(
+            "ping_trace req=%s start sid=%s url=%s",
+            ctx.req_id, _sid(params), params.url,
+        )
+
+    async def on_dns_resolvehost_start(session, ctx, params):
+        ctx.t_dns_start = time.monotonic()
+        logger.info(
+            "ping_trace req=%s dns_start host=%s t=%.3fs",
+            ctx.req_id, params.host, ctx.t_dns_start - ctx.t_start,
+        )
+
+    async def on_dns_resolvehost_end(session, ctx, params):
+        now = time.monotonic()
+        logger.info(
+            "ping_trace req=%s dns_end host=%s dns_elapsed=%.3fs t=%.3fs",
+            ctx.req_id, params.host,
+            now - getattr(ctx, "t_dns_start", ctx.t_start),
+            now - ctx.t_start,
+        )
+
+    async def on_connection_create_start(session, ctx, params):
+        ctx.t_conn_start = time.monotonic()
+        logger.info(
+            "ping_trace req=%s connect_start t=%.3fs",
+            ctx.req_id, ctx.t_conn_start - ctx.t_start,
+        )
+
+    async def on_connection_create_end(session, ctx, params):
+        now = time.monotonic()
+        logger.info(
+            "ping_trace req=%s connect_end conn_elapsed=%.3fs t=%.3fs",
+            ctx.req_id,
+            now - getattr(ctx, "t_conn_start", ctx.t_start),
+            now - ctx.t_start,
+        )
+
+    async def on_connection_reuseconn(session, ctx, params):
+        logger.info(
+            "ping_trace req=%s connect_reuse t=%.3fs",
+            ctx.req_id, time.monotonic() - ctx.t_start,
+        )
+
+    async def on_request_end(session, ctx, params):
+        logger.info(
+            "ping_trace req=%s end status=%d total=%.3fs",
+            ctx.req_id, params.response.status,
+            time.monotonic() - ctx.t_start,
+        )
+
+    async def on_request_exception(session, ctx, params):
+        logger.warning(
+            "ping_trace req=%s exception total=%.3fs error_type=%s error=%s",
+            ctx.req_id, time.monotonic() - ctx.t_start,
+            type(params.exception).__name__, params.exception,
+        )
+
+    tc.on_request_start.append(on_request_start)
+    tc.on_dns_resolvehost_start.append(on_dns_resolvehost_start)
+    tc.on_dns_resolvehost_end.append(on_dns_resolvehost_end)
+    tc.on_connection_create_start.append(on_connection_create_start)
+    tc.on_connection_create_end.append(on_connection_create_end)
+    tc.on_connection_reuseconn.append(on_connection_reuseconn)
+    tc.on_request_end.append(on_request_end)
+    tc.on_request_exception.append(on_request_exception)
+
+    return tc
+
+
 async def ping(url: str, sid: str, api_key: Optional[str], sleep_time: float, client: aiohttp.ClientSession, deployment: Optional[str] = None, max_consecutive_failures: int = _MAX_CONSECUTIVE_PING_FAILURES) -> None:
     """Keepalive ping loop. Successful pings reset the consecutive-failure
     counter; only raise after ``max_consecutive_failures`` back-to-back
     failures with no intervening success.
     """
     consecutive_failures = 0
+    cycle = 0
     while True:
+        cycle += 1
         start = time.monotonic()
+        logger.info("ping_cycle_start sid=%s cycle=%d", sid, cycle)
         try:
             await request_retryable(
                 client,
@@ -49,10 +141,12 @@ async def ping(url: str, sid: str, api_key: Optional[str], sleep_time: float, cl
             )
             consecutive_failures = 0
         except Exception as e:
+            elapsed = time.monotonic() - start
             consecutive_failures += 1
             logger.warning(
-                "Ping failed sid=%s url=%s (%d/%d) error_type=%s error=%s",
+                "Ping failed sid=%s url=%s (%d/%d) cycle=%d elapsed=%.2fs error_type=%s error=%s",
                 sid, url, consecutive_failures, max_consecutive_failures,
+                cycle, elapsed,
                 type(e).__name__, e,
             )
             if consecutive_failures >= max_consecutive_failures:
@@ -61,7 +155,7 @@ async def ping(url: str, sid: str, api_key: Optional[str], sleep_time: float, cl
             await asyncio.sleep(sleep_time)
             continue
         elapsed = time.monotonic() - start
-        logger.debug("Ping ok sid=%s elapsed=%.2fs", sid, elapsed)
+        logger.info("ping_ok sid=%s cycle=%d elapsed=%.3fs", sid, cycle, elapsed)
         if elapsed > _SLOW_PING_THRESHOLD:
             logger.warning(
                 "Ping slow sid=%s elapsed=%.1fs (target=%ss)",
@@ -102,6 +196,7 @@ class _PingThread:
             self._client = aiohttp.ClientSession(
                 connector=aiohttp.TCPConnector(limit=0, force_close=True, enable_cleanup_closed=True),
                 timeout=aiohttp.ClientTimeout(total=30),
+                trace_configs=[_make_trace_config()],
             )
         return self._client
 
