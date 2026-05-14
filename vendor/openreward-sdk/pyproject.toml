@@ -1,0 +1,67 @@
+[project]
+name = "openreward"
+version = "0.1.120"
+description = "Python SDK for the OpenReward platform."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    {name = "GR Inc", email = "hello@gr.inc"}
+]
+requires-python = ">=3.11"
+
+dependencies = [
+    "aiohttp>=3.13.2",
+    "anthropic>=0.69.0",
+    "click>=8.0.0",
+    "google-genai>=1.4.0",
+    "openai>=1.88.0",
+    "tenacity>=9.1.2",
+    "fastapi>=0.115.12",
+    "pydantic>=2.11.5",
+    "sse-starlette==2.3.6",
+    "uvicorn>=0.34.3",
+    "typing-extensions>=4.9.0",
+    "structlog>=24.1.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "mypy>=1.0.0",
+    "ruff>=0.1.0",
+    "pyright>=1.1.409"
+]
+tools = [
+    "pdfplumber>=0.11.0",
+    "pypdf>=4.0.0",
+    "reportlab>=4.0.0",
+    "pdf2image>=1.16.0",
+    "python-docx>=1.1.0",
+    "openpyxl>=3.1.0",
+    "python-pptx>=0.6.21",
+]
+
+[project.scripts]
+orwd = "openreward.cli:main"
+
+[tool.setuptools]
+packages =  { find = { include = ["openreward", "openreward.*"] } }
+
+[tool.setuptools.package-data]
+openreward = ["templates/**/*"]
+
+[tool.pyright]
+include = ["openreward"]
+defineConstant = { DEBUG = true }
+
+reportMissingImports = "error"
+reportMissingTypeStubs = false
+
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"

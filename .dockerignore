@@ -1,5 +1,7 @@
+.git/
 .venv/
 .claude/
+.idea/
 __pycache__/
+*.pyc
 task_description.md
-/data/
