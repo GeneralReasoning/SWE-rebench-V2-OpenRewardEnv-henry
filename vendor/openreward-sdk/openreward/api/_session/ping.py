@@ -197,6 +197,7 @@ class _PingThread:
                 connector=aiohttp.TCPConnector(limit=0, force_close=True, enable_cleanup_closed=True),
                 timeout=aiohttp.ClientTimeout(total=30),
                 trace_configs=[_make_trace_config()],
+                trust_env=True
             )
         return self._client
 
